@@ -25,6 +25,15 @@ module.exports = {
         'hero-gradient': 'radial-gradient(120% 140% at 0% 0%, rgba(34,197,94,0.22) 0%, rgba(18,24,33,0) 55%), linear-gradient(160deg, #16321f 0%, #121821 42%)',
         'sheen': 'linear-gradient(120deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 40%)',
       },
+      keyframes: {
+        pop: {
+          '0%': { opacity: '0', transform: 'scale(0.85)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
+        },
+      },
+      animation: {
+        pop: 'pop 0.25s ease-out',
+      },
     },
   },
   plugins: [],

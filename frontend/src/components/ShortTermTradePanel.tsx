@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowTrendUp, faArrowTrendDown } from '@fortawesome/free-solid-svg-icons';
+import { faArrowTrendUp, faArrowTrendDown, faTrophy, faCircleXmark, faRotateLeft, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { api, ApiError } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 
@@ -35,6 +35,16 @@ const OUTCOME_STYLE: Record<Trade['outcome'], string> = {
   PUSH: 'text-muted',
 };
 
+interface SettledPayload {
+  tradeId: string;
+  pair: string;
+  outcome: 'WIN' | 'LOSE' | 'PUSH';
+  settlementPrice: number;
+  payoutAmount: number;
+}
+
+const RESULT_POPUP_MS = 6000;
+
 export default function ShortTermTradePanel({ pair, onSettled }: { pair: string; onSettled?: () => void }) {
   const [durations, setDurations] = useState<Duration[]>([]);
   const [durationId, setDurationId] = useState('');
@@ -44,6 +54,12 @@ export default function ShortTermTradePanel({ pair, onSettled }: { pair: string;
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [result, setResult] = useState<{ trade: Trade | null; payload: SettledPayload } | null>(null);
+  const tradesRef = useRef<Trade[]>([]);
+
+  useEffect(() => {
+    tradesRef.current = trades;
+  }, [trades]);
 
   useEffect(() => {
     api.get<{ durations: Duration[] }>('/api/market/trade-durations').then((res) => {
@@ -54,7 +70,9 @@ export default function ShortTermTradePanel({ pair, onSettled }: { pair: string;
 
     const tick = window.setInterval(() => setNow(Date.now()), 1000);
     const socket = getSocket();
-    const onSettledEvent = () => {
+    const onSettledEvent = (payload: SettledPayload) => {
+      const trade = tradesRef.current.find((t) => t.id === payload.tradeId) ?? null;
+      setResult({ trade, payload });
       loadTrades();
       onSettled?.();
     };
@@ -65,6 +83,12 @@ export default function ShortTermTradePanel({ pair, onSettled }: { pair: string;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!result) return;
+    const timer = window.setTimeout(() => setResult(null), RESULT_POPUP_MS);
+    return () => window.clearTimeout(timer);
+  }, [result]);
 
   function loadTrades() {
     api.get<{ trades: Trade[] }>('/api/trades/short-term').then((res) => setTrades(res.trades.slice(0, 8))).catch(() => {});
@@ -104,6 +128,7 @@ export default function ShortTermTradePanel({ pair, onSettled }: { pair: string;
   }, [stake, selectedDuration]);
 
   return (
+    <>
     <div className="rounded-2xl border border-border bg-panel p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold">Short-Term Trade</h3>
@@ -186,5 +211,98 @@ export default function ShortTermTradePanel({ pair, onSettled }: { pair: string;
         </div>
       )}
     </div>
+
+    {result && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm"
+        onClick={() => setResult(null)}
+      >
+        <div
+          className={`relative w-full max-w-xs animate-pop rounded-2xl border p-6 text-center shadow-card ${
+            result.payload.outcome === 'WIN'
+              ? 'border-accent/40 bg-gradient-to-b from-accent/15 to-panel'
+              : result.payload.outcome === 'LOSE'
+              ? 'border-danger/40 bg-gradient-to-b from-danger/15 to-panel'
+              : 'border-border bg-panel'
+          }`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => setResult(null)}
+            className="absolute right-3 top-3 text-muted hover:text-white"
+            aria-label="Close"
+          >
+            <FontAwesomeIcon icon={faXmark} />
+          </button>
+
+          <div
+            className={`mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full text-2xl ${
+              result.payload.outcome === 'WIN'
+                ? 'bg-accent/15 text-accent'
+                : result.payload.outcome === 'LOSE'
+                ? 'bg-danger/15 text-danger'
+                : 'bg-white/5 text-muted'
+            }`}
+          >
+            <FontAwesomeIcon
+              icon={result.payload.outcome === 'WIN' ? faTrophy : result.payload.outcome === 'LOSE' ? faCircleXmark : faRotateLeft}
+            />
+          </div>
+
+          <h3
+            className={`text-lg font-bold ${
+              result.payload.outcome === 'WIN' ? 'text-accent' : result.payload.outcome === 'LOSE' ? 'text-danger' : 'text-white'
+            }`}
+          >
+            {result.payload.outcome === 'WIN' ? 'You Won!' : result.payload.outcome === 'LOSE' ? 'You Lost' : 'Push — Stake Returned'}
+          </h3>
+
+          <p className="mt-1 text-xs text-muted">
+            {result.payload.pair}
+            {result.trade && (
+              <>
+                {' '}
+                · {result.trade.direction === 'UP' ? 'Up / Bull' : 'Down / Bear'} · {result.trade.duration_label}
+              </>
+            )}
+          </p>
+
+          <div className="mt-4 rounded-xl border border-border bg-surface/60 p-3">
+            {result.payload.outcome === 'WIN' && (
+              <div className="text-2xl font-bold tabular-nums text-accent">
+                +{result.payload.payoutAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
+              </div>
+            )}
+            {result.payload.outcome === 'LOSE' && result.trade && (
+              <div className="text-2xl font-bold tabular-nums text-danger">
+                -{parseFloat(result.trade.stake_amount).toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
+              </div>
+            )}
+            {result.payload.outcome === 'PUSH' && result.trade && (
+              <div className="text-2xl font-bold tabular-nums text-white">
+                {parseFloat(result.trade.stake_amount).toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT
+              </div>
+            )}
+            {result.trade && (
+              <div className="mt-1.5 flex justify-center gap-3 text-[11px] text-muted">
+                <span>Entry {parseFloat(result.trade.entry_price).toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+                <span>→</span>
+                <span>Settled {result.payload.settlementPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() => setResult(null)}
+            className={`mt-4 w-full rounded-xl py-2.5 text-sm font-semibold ${
+              result.payload.outcome === 'WIN' ? 'bg-accent text-black' : result.payload.outcome === 'LOSE' ? 'bg-danger text-white' : 'bg-white/10 text-white'
+            }`}
+          >
+            Continue
+          </button>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
