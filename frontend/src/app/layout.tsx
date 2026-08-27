@@ -19,7 +19,9 @@ export async function generateMetadata(): Promise<Metadata> {
   let hasLogo = false;
 
   try {
-    const res = await fetch(`${INTERNAL_API_URL}/api/public/site-config`, { next: { revalidate: 300 } });
+    // Must be dynamic (not cached/ISR'd): a build-time fetch would hit a backend that
+    // isn't reachable yet during the Docker image build and silently lock in the fallback.
+    const res = await fetch(`${INTERNAL_API_URL}/api/public/site-config`, { cache: 'no-store' });
     if (res.ok) {
       const data = await res.json();
       siteName = data.branding?.siteName || siteName;
