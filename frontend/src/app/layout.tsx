@@ -3,10 +3,53 @@ import './globals.css';
 import '@/lib/fontawesome';
 import { AuthProvider } from '@/lib/AuthContext';
 
-export const metadata: Metadata = {
-  title: 'PaperTrade — Virtual Crypto Exchange',
-  description: 'Simulated cryptocurrency paper trading platform',
-};
+// Reaches the backend over the Docker network directly (faster, no round trip through
+// nginx/the public domain) since this only ever runs server-side during rendering.
+const INTERNAL_API_URL = process.env.INTERNAL_API_URL || 'http://backend-api:4000';
+// Used for the OG/Twitter image URL instead, since that one has to be fetchable by
+// outside link-preview crawlers (Telegram, WhatsApp, ...), not just from inside Docker.
+const PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+const DEFAULT_SITE_NAME = 'PaperTrade';
+const DEFAULT_TAGLINE = 'Simulated crypto trading. No real funds involved.';
+
+export async function generateMetadata(): Promise<Metadata> {
+  let siteName = DEFAULT_SITE_NAME;
+  let tagline = DEFAULT_TAGLINE;
+  let hasLogo = false;
+
+  try {
+    const res = await fetch(`${INTERNAL_API_URL}/api/public/site-config`, { next: { revalidate: 300 } });
+    if (res.ok) {
+      const data = await res.json();
+      siteName = data.branding?.siteName || siteName;
+      tagline = data.branding?.tagline || tagline;
+      hasLogo = Boolean(data.branding?.logoDataUrl);
+    }
+  } catch {
+    // Backend unreachable at render time — fall back to the defaults above.
+  }
+
+  const logoUrl = hasLogo ? `${PUBLIC_API_URL}/api/public/site-logo` : undefined;
+
+  return {
+    title: siteName,
+    description: tagline,
+    openGraph: {
+      title: siteName,
+      description: tagline,
+      siteName,
+      type: 'website',
+      ...(logoUrl ? { images: [{ url: logoUrl }] } : {}),
+    },
+    twitter: {
+      card: 'summary',
+      title: siteName,
+      description: tagline,
+      ...(logoUrl ? { images: [logoUrl] } : {}),
+    },
+  };
+}
 
 export const viewport: Viewport = {
   width: 'device-width',

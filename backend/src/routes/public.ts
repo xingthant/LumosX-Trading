@@ -35,4 +35,17 @@ router.get('/site-config', async (_req, res) => {
   });
 });
 
+// Serves the admin-uploaded logo as a real image response (not JSON), so it can be used
+// as a link-preview/OG image — those crawlers fetch a URL, they don't parse JSON payloads.
+router.get('/site-logo', async (_req, res) => {
+  const result = await pool.query(
+    `SELECT logo_data, logo_mime_type FROM site_branding_config WHERE logo_data IS NOT NULL ORDER BY updated_at DESC LIMIT 1`
+  );
+  const row = result.rows[0];
+  if (!row) return res.status(404).end();
+  res.setHeader('Content-Type', row.logo_mime_type || 'image/png');
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.send(Buffer.from(row.logo_data, 'base64'));
+});
+
 export default router;
