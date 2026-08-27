@@ -1,0 +1,107 @@
+version: '3.8'
+
+networks:
+  crypto-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+
+services:
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: crypto_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-crypto_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-crypto_platform}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - crypto-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crypto_admin -d crypto_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis-cache:
+    image: redis:7-alpine
+    container_name: crypto_redis
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - crypto-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: crypto_backend
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgres://${POSTGRES_USER:-crypto_admin}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres-db:5432/${POSTGRES_DB:-crypto_platform}
+      REDIS_URL: redis://redis-cache:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      SUPPORTED_PAIRS: "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT,TRXUSDT,DOTUSDT,LTCUSDT,LINKUSDT,AVAXUSDT,ATOMUSDT,UNIUSDT,ETCUSDT,XLMUSDT,BCHUSDT,NEARUSDT,FILUSDT,ICPUSDT"
+      STARTING_FIAT_BALANCE: "100000"
+      FIAT_SYMBOL: USDT
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+    networks:
+      - crypto-network
+
+  matching-engine:
+    build:
+      context: ./matching-engine
+      dockerfile: Dockerfile
+    container_name: crypto_matching_engine
+    restart: always
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-crypto_admin}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres-db:5432/${POSTGRES_DB:-crypto_platform}
+      REDIS_URL: redis://redis-cache:6379
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+      backend-api:
+        condition: service_started
+    networks:
+      - crypto-network
+
+  frontend-app:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-http://localhost:4000}
+    container_name: crypto_frontend
+    restart: always
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-http://localhost:4000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend-api
+    networks:
+      - crypto-network
