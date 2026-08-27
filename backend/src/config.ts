@@ -14,6 +14,6 @@ export const config = {
     'BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT,TRXUSDT,DOTUSDT,LTCUSDT,LINKUSDT,AVAXUSDT,ATOMUSDT,UNIUSDT,ETCUSDT,XLMUSDT,BCHUSDT,NEARUSDT,FILUSDT,ICPUSDT'
   ).split(','),
   binanceWsUrl: process.env.BINANCE_WS_URL || 'wss://stream.binance.com:9443/stream',
-  startingFiatBalance: parseFloat(process.env.STARTING_FIAT_BALANCE || '100000'),
+  startingFiatBalance: parseFloat(process.env.STARTING_FIAT_BALANCE || '0'),
   fiatSymbol: process.env.FIAT_SYMBOL || 'USDT',
 };
