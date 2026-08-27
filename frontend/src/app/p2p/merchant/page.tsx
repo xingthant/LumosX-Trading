@@ -16,7 +16,17 @@ interface Ad {
   available_amount: string;
   payment_window_minutes: number;
   payment_methods: string[];
+  bank_method_ids: string[];
+  bank_options: { id: string; bankName: string }[];
   status: 'ACTIVE' | 'PAUSED';
+}
+
+interface BankAccount {
+  id: string;
+  bank_name: string;
+  account_holder: string;
+  account_number: string;
+  note: string | null;
 }
 
 interface Order {
@@ -43,13 +53,15 @@ const emptyForm = {
   maxAmount: '',
   availableAmount: '',
   paymentWindowMinutes: 15 as 1 | 15 | 30,
-  paymentMethods: 'Bank Transfer',
+  paymentMethods: '',
   terms: '',
 };
 
 export default function MerchantCenterPage() {
   const [ads, setAds] = useState<Ad[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [adsMessage, setAdsMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
@@ -64,13 +76,26 @@ export default function MerchantCenterPage() {
         if (err instanceof ApiError && err.status === 403) setForbidden(true);
       });
     api.get<{ orders: Order[] }>('/api/p2p/orders').then((res) => setOrders(res.orders)).catch(() => {});
+    api
+      .get<{ methods: (BankAccount & { type: string })[] }>('/api/wallet/payment-methods')
+      .then((res) => setBankAccounts(res.methods.filter((m) => m.type === 'BANK_ACCOUNT')))
+      .catch(() => {});
   }
 
   useEffect(load, []);
 
+  function toggleBankId(id: string) {
+    setSelectedBankIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
   async function createAd(e: React.FormEvent) {
     e.preventDefault();
     setMessage(null);
+    const labelCount = form.paymentMethods.split(',').map((s) => s.trim()).filter(Boolean).length;
+    if (form.side === 'SELL' ? selectedBankIds.length === 0 && labelCount === 0 : labelCount === 0) {
+      setMessage({ kind: 'error', text: 'Choose at least one bank account or add a payment method label' });
+      return;
+    }
     setBusy(true);
     try {
       await api.post('/api/p2p/ads', {
@@ -83,10 +108,12 @@ export default function MerchantCenterPage() {
         availableAmount: parseFloat(form.availableAmount),
         paymentWindowMinutes: form.paymentWindowMinutes,
         paymentMethods: form.paymentMethods.split(',').map((s) => s.trim()).filter(Boolean),
+        bankMethodIds: form.side === 'SELL' ? selectedBankIds : undefined,
         terms: form.terms || undefined,
       });
       setMessage({ kind: 'ok', text: 'Ad published.' });
       setForm(emptyForm);
+      setSelectedBankIds([]);
       load();
     } catch (err) {
       setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : 'Failed to publish ad' });
@@ -167,6 +194,20 @@ export default function MerchantCenterPage() {
               {parseFloat(ad.max_amount).toLocaleString()} · {parseFloat(ad.available_amount).toLocaleString()} left · pay within{' '}
               {ad.payment_window_minutes} min
             </div>
+            {(ad.bank_options.length > 0 || ad.payment_methods.length > 0) && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {ad.bank_options?.map((b) => (
+                  <span key={b.id} className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">
+                    {b.bankName}
+                  </span>
+                ))}
+                {ad.payment_methods.map((pm) => (
+                  <span key={pm} className="rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted">
+                    {pm}
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="mt-2 flex gap-2">
               <button onClick={() => toggleAd(ad)} className="rounded-lg border border-border px-2 py-1 text-xs">
                 {ad.status === 'ACTIVE' ? 'Pause' : 'Resume'}
@@ -214,7 +255,44 @@ export default function MerchantCenterPage() {
             ))}
           </div>
         </div>
-        <input value={form.paymentMethods} onChange={(e) => setForm({ ...form, paymentMethods: e.target.value })} placeholder="Payment methods (comma separated)" className="mb-2 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm" />
+        {form.side === 'SELL' && (
+          <div className="mb-2">
+            <label className="mb-1 block text-[11px] text-muted">Bank accounts buyers can pay into (pick up to 7)</label>
+            {bankAccounts.length === 0 ? (
+              <p className="rounded-lg border border-border bg-surface px-3 py-2 text-xs text-muted">
+                No bank accounts saved yet —{' '}
+                <Link href="/settings" className="text-accent underline">
+                  add one in Settings
+                </Link>{' '}
+                to let buyers pay directly into your bank.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {bankAccounts.map((b) => (
+                  <label
+                    key={b.id}
+                    className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
+                      selectedBankIds.includes(b.id) ? 'border-accent bg-accent/10' : 'border-border bg-surface'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={selectedBankIds.includes(b.id)}
+                      disabled={!selectedBankIds.includes(b.id) && selectedBankIds.length >= 7}
+                      onChange={() => toggleBankId(b.id)}
+                    />
+                    <span>
+                      <span className="font-medium">{b.bank_name}</span> · {b.account_holder} · {b.account_number}
+                      {b.note && <span className="block text-muted">Note: {b.note}</span>}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        <input value={form.paymentMethods} onChange={(e) => setForm({ ...form, paymentMethods: e.target.value })} placeholder="Other payment methods (comma separated, optional)" className="mb-2 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm" />
         <textarea value={form.terms} onChange={(e) => setForm({ ...form, terms: e.target.value })} placeholder="Terms (optional)" rows={2} className="mb-2 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm" />
         {message && <p className={`mb-2 text-xs ${message.kind === 'ok' ? 'text-accent' : 'text-danger'}`}>{message.text}</p>}
         <button type="submit" disabled={busy} className="w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-black disabled:opacity-60">

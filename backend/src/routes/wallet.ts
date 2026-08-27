@@ -24,6 +24,8 @@ router.get('/deposit-banks', async (_req, res) => {
 
 // --- The user's own bound payout methods (crypto wallet address or bank account) --------
 
+const MAX_BANK_ACCOUNTS_PER_USER = 7;
+
 const paymentMethodSchema = z.object({
   type: z.enum(['CRYPTO_WALLET', 'BANK_ACCOUNT']),
   label: z.string().min(1).max(100),
@@ -35,6 +37,7 @@ const paymentMethodSchema = z.object({
   accountNumber: z.string().max(100).optional(),
   iban: z.string().max(100).optional(),
   swiftCode: z.string().max(50).optional(),
+  note: z.string().max(500).optional(),
 });
 
 router.get('/payment-methods', async (req, res) => {
@@ -54,10 +57,20 @@ router.post('/payment-methods', async (req, res) => {
     return res.status(400).json({ error: 'bankName, accountHolder and accountNumber are required for a bank account' });
   }
 
+  if (m.type === 'BANK_ACCOUNT') {
+    const countRes = await pool.query(
+      `SELECT count(*) FROM user_payment_methods WHERE user_id = $1 AND type = 'BANK_ACCOUNT'`,
+      [req.user!.id]
+    );
+    if (parseInt(countRes.rows[0].count, 10) >= MAX_BANK_ACCOUNTS_PER_USER) {
+      return res.status(400).json({ error: `You can save at most ${MAX_BANK_ACCOUNTS_PER_USER} bank accounts` });
+    }
+  }
+
   const result = await pool.query(
     `INSERT INTO user_payment_methods
-       (user_id, type, label, asset_symbol, wallet_address, network, bank_name, account_holder, account_number, iban, swift_code)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+       (user_id, type, label, asset_symbol, wallet_address, network, bank_name, account_holder, account_number, iban, swift_code, note)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
     [
       req.user!.id,
       m.type,
@@ -70,6 +83,7 @@ router.post('/payment-methods', async (req, res) => {
       m.accountNumber || null,
       m.iban || null,
       m.swiftCode || null,
+      m.note || null,
     ]
   );
   res.status(201).json({ method: result.rows[0] });

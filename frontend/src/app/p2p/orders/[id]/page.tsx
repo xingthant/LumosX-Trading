@@ -21,7 +21,12 @@ interface Order {
   price: string;
   total_fiat: string;
   payment_method: string | null;
+  bank_name: string | null;
+  bank_account_holder: string | null;
+  bank_account_number: string | null;
+  bank_note: string | null;
   status: 'PENDING_PAYMENT' | 'PAID' | 'COMPLETED' | 'CANCELLED' | 'DISPUTED';
+  disputed_by: string | null;
   payment_deadline: string;
   created_at: string;
 }
@@ -107,7 +112,7 @@ export default function P2POrderDetailPage() {
   const counterpartyEmail = user.id === order.merchant_id ? order.taker_email : order.merchant_email;
   const canUploadReceipt = ['PENDING_PAYMENT', 'PAID', 'DISPUTED'].includes(order.status);
 
-  async function act(action: 'mark-paid' | 'release' | 'cancel' | 'dispute') {
+  async function act(action: 'mark-paid' | 'release' | 'cancel' | 'dispute' | 'dispute/cancel') {
     setError(null);
     setBusy(true);
     try {
@@ -198,7 +203,7 @@ export default function P2POrderDetailPage() {
           </div>
           <div>
             <div className="text-[11px] text-muted">Payment method</div>
-            <div>{order.payment_method || '—'}</div>
+            <div>{order.bank_name || order.payment_method || '—'}</div>
           </div>
         </div>
         {order.status === 'PENDING_PAYMENT' && (
@@ -207,6 +212,29 @@ export default function P2POrderDetailPage() {
           </p>
         )}
       </div>
+
+      {order.bank_name && (
+        <div className="mb-3 rounded-2xl border border-accent/30 bg-accent/5 p-4 shadow-card">
+          <div className="mb-2 text-xs font-semibold text-accent">
+            {isBuyer ? 'Pay into this bank account' : 'Buyer will pay into this account'}
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div>
+              <div className="text-[11px] text-muted">Bank</div>
+              <div className="font-medium">{order.bank_name}</div>
+            </div>
+            <div>
+              <div className="text-[11px] text-muted">Account holder</div>
+              <div className="font-medium">{order.bank_account_holder}</div>
+            </div>
+            <div className="col-span-2">
+              <div className="text-[11px] text-muted">Account number</div>
+              <div className="font-medium tabular-nums">{order.bank_account_number}</div>
+            </div>
+          </div>
+          {order.bank_note && <div className="mt-2 text-xs italic text-muted">Note: {order.bank_note}</div>}
+        </div>
+      )}
 
       {error && <p className="mb-2 text-sm text-danger">{error}</p>}
 
@@ -228,8 +256,18 @@ export default function P2POrderDetailPage() {
         )}
         {(order.status === 'PENDING_PAYMENT' || order.status === 'PAID') && (
           <button onClick={() => act('dispute')} disabled={busy} className="w-full rounded-xl border border-danger/40 py-2.5 text-sm text-danger">
-            Open Dispute
+            Open Dispute — Complain to Admin
           </button>
+        )}
+        {order.status === 'DISPUTED' && order.disputed_by === user.id && (
+          <button onClick={() => act('dispute/cancel')} disabled={busy} className="w-full rounded-xl border border-border py-2.5 text-sm text-muted">
+            Cancel My Dispute
+          </button>
+        )}
+        {order.status === 'DISPUTED' && order.disputed_by !== user.id && (
+          <p className="text-center text-[11px] text-muted">
+            {counterpartyEmail?.split('@')[0]} opened this dispute — an admin will review it. Add details in the chat below if needed.
+          </p>
         )}
       </div>
 

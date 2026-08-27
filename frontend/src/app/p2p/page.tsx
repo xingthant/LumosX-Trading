@@ -20,6 +20,7 @@ interface Ad {
   available_amount: string;
   payment_window_minutes: number;
   payment_methods: string[];
+  bank_options: { id: string; bankName: string }[];
 }
 
 export default function P2PPage() {
@@ -30,6 +31,7 @@ export default function P2PPage() {
   const [ads, setAds] = useState<Ad[]>([]);
   const [activeAd, setActiveAd] = useState<Ad | null>(null);
   const [amount, setAmount] = useState('');
+  const [bankMethodId, setBankMethodId] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
@@ -42,10 +44,18 @@ export default function P2PPage() {
 
   async function placeOrder() {
     if (!activeAd) return;
+    if (activeAd.bank_options.length > 0 && !bankMethodId) {
+      setMessage({ kind: 'error', text: 'Choose which bank account to pay into' });
+      return;
+    }
     setMessage(null);
     setBusy(true);
     try {
-      const res = await api.post<{ order: { id: string } }>('/api/p2p/orders', { adId: activeAd.id, amount: parseFloat(amount) });
+      const res = await api.post<{ order: { id: string } }>('/api/p2p/orders', {
+        adId: activeAd.id,
+        amount: parseFloat(amount),
+        bankMethodId: bankMethodId || undefined,
+      });
       router.push(`/p2p/orders/${res.order.id}`);
     } catch (err) {
       setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : 'Failed to create order' });
@@ -105,6 +115,11 @@ export default function P2PPage() {
               <FontAwesomeIcon icon={faClock} /> Pay within {ad.payment_window_minutes} min
             </div>
             <div className="mt-1.5 flex flex-wrap gap-1">
+              {ad.bank_options.map((b) => (
+                <span key={b.id} className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">
+                  {b.bankName}
+                </span>
+              ))}
               {ad.payment_methods.map((pm) => (
                 <span key={pm} className="rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted">
                   {pm}
@@ -115,6 +130,7 @@ export default function P2PPage() {
               onClick={() => {
                 setActiveAd(ad);
                 setAmount('');
+                setBankMethodId('');
                 setMessage(null);
               }}
               className={`mt-2 w-full rounded-lg py-2 text-sm font-semibold ${tab === 'BUY' ? 'bg-accent text-black' : 'bg-danger text-white'}`}
@@ -148,6 +164,24 @@ export default function P2PPage() {
               placeholder={`Amount (${activeAd.asset_symbol})`}
               className="mb-2 w-full rounded-xl border border-border bg-surface px-4 py-3 text-base outline-none focus:border-accent"
             />
+            {activeAd.bank_options.length > 0 && (
+              <div className="mb-2">
+                <label className="mb-1 block text-[11px] text-muted">Pay into which bank account?</label>
+                <div className="flex flex-col gap-1.5">
+                  {activeAd.bank_options.map((b) => (
+                    <label
+                      key={b.id}
+                      className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                        bankMethodId === b.id ? 'border-accent bg-accent/10' : 'border-border bg-surface'
+                      }`}
+                    >
+                      <input type="radio" name="bankMethod" checked={bankMethodId === b.id} onChange={() => setBankMethodId(b.id)} />
+                      {b.bankName}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
             {amount && !Number.isNaN(parseFloat(amount)) && (
               <p className="mb-2 text-xs text-muted">
                 Total: <span className="font-semibold text-white">{(parseFloat(amount) * parseFloat(activeAd.price)).toLocaleString()}</span>{' '}

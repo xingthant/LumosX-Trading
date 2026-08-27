@@ -16,6 +16,11 @@ interface Order {
   amount: string;
   total_fiat: string;
   status: string;
+  bank_name: string | null;
+  bank_account_holder: string | null;
+  bank_account_number: string | null;
+  bank_note: string | null;
+  disputed_by_email: string | null;
   created_at: string;
 }
 
@@ -100,6 +105,15 @@ export default function AdminP2PPage() {
                 </td>
                 <td className="px-3 py-2">
                   <span className={STATUS_COLOR[o.status] || 'text-muted'}>{o.status}</span>
+                  {o.bank_name && (
+                    <div className="mt-0.5 text-[10px] text-muted">
+                      {o.bank_name} · {o.bank_account_holder} · {o.bank_account_number}
+                      {o.bank_note && <span className="italic"> ({o.bank_note})</span>}
+                    </div>
+                  )}
+                  {o.status === 'DISPUTED' && o.disputed_by_email && (
+                    <div className="mt-0.5 text-[10px] text-danger">Filed by {o.disputed_by_email}</div>
+                  )}
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex flex-wrap gap-2">

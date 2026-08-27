@@ -684,7 +684,8 @@ router.delete('/promotions/:id', async (req, res) => {
 router.get('/p2p/orders', async (req, res) => {
   const status = (req.query.status as string | undefined)?.toUpperCase();
   const params: any[] = [];
-  let query = `SELECT o.*, m.email AS merchant_email, t.email AS taker_email
+  let query = `SELECT o.*, m.email AS merchant_email, t.email AS taker_email,
+                 CASE WHEN o.disputed_by = o.merchant_id THEN m.email WHEN o.disputed_by = o.taker_id THEN t.email END AS disputed_by_email
                FROM p2p_orders o JOIN users m ON m.id = o.merchant_id JOIN users t ON t.id = o.taker_id`;
   if (status) {
     params.push(status);

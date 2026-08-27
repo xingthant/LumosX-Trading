@@ -27,11 +27,18 @@ function resolveParties(adSide: 'BUY' | 'SELL', merchantId: string, takerId: str
 
 // --- Ads --------------------------------------------------------------------
 
+// Returns the ad's linked bank accounts as {id, bankName} pairs (not full account
+// details — those are only revealed once an order is created, same as real P2P desks).
+const BANK_OPTIONS_SUBQUERY = `(
+  SELECT COALESCE(json_agg(json_build_object('id', id, 'bankName', bank_name) ORDER BY bank_name), '[]')
+  FROM user_payment_methods WHERE id = ANY(a.bank_method_ids)
+) AS bank_options`;
+
 router.get('/ads', async (req, res) => {
   const side = (req.query.side as string | undefined)?.toUpperCase();
   const asset = (req.query.asset as string | undefined)?.toUpperCase();
   const params: any[] = [];
-  let query = `SELECT a.*, u.email AS merchant_email
+  let query = `SELECT a.*, u.email AS merchant_email, ${BANK_OPTIONS_SUBQUERY}
                FROM p2p_ads a JOIN users u ON u.id = a.merchant_id
                WHERE a.status = 'ACTIVE' AND a.available_amount > 0`;
   if (side === 'BUY' || side === 'SELL') {
@@ -48,22 +55,41 @@ router.get('/ads', async (req, res) => {
 });
 
 router.get('/ads/mine', requireMerchant, async (req, res) => {
-  const result = await pool.query(`SELECT * FROM p2p_ads WHERE merchant_id = $1 ORDER BY created_at DESC`, [req.user!.id]);
+  const result = await pool.query(
+    `SELECT a.*, ${BANK_OPTIONS_SUBQUERY} FROM p2p_ads a WHERE a.merchant_id = $1 ORDER BY a.created_at DESC`,
+    [req.user!.id]
+  );
   res.json({ ads: result.rows });
 });
 
-const adSchema = z.object({
-  side: z.enum(['BUY', 'SELL']),
-  assetSymbol: z.string().min(2).max(20),
-  fiatSymbol: z.string().min(2).max(10),
-  price: z.number().positive(),
-  minAmount: z.number().positive(),
-  maxAmount: z.number().positive(),
-  availableAmount: z.number().positive(),
-  paymentWindowMinutes: z.union([z.literal(1), z.literal(15), z.literal(30)]).optional(),
-  paymentMethods: z.array(z.string().min(1).max(50)).min(1),
-  terms: z.string().max(1000).optional(),
-});
+/** Confirms every id in `ids` is one of the merchant's own saved BANK_ACCOUNT payment methods. */
+async function verifyOwnedBankMethods(userId: string, ids: string[]): Promise<boolean> {
+  if (ids.length === 0) return true;
+  const result = await pool.query(
+    `SELECT count(*) FROM user_payment_methods WHERE id = ANY($1) AND user_id = $2 AND type = 'BANK_ACCOUNT'`,
+    [ids, userId]
+  );
+  return parseInt(result.rows[0].count, 10) === ids.length;
+}
+
+const adSchema = z
+  .object({
+    side: z.enum(['BUY', 'SELL']),
+    assetSymbol: z.string().min(2).max(20),
+    fiatSymbol: z.string().min(2).max(10),
+    price: z.number().positive(),
+    minAmount: z.number().positive(),
+    maxAmount: z.number().positive(),
+    availableAmount: z.number().positive(),
+    paymentWindowMinutes: z.union([z.literal(1), z.literal(15), z.literal(30)]).optional(),
+    paymentMethods: z.array(z.string().min(1).max(50)).max(20).optional(),
+    bankMethodIds: z.array(z.string().uuid()).max(7).optional(),
+    terms: z.string().max(1000).optional(),
+  })
+  .refine((d) => (d.paymentMethods?.length || 0) + (d.bankMethodIds?.length || 0) > 0, {
+    message: 'Choose at least one bank account or add a payment method label',
+    path: ['paymentMethods'],
+  });
 
 router.post('/ads', requireMerchant, async (req, res) => {
   const parsed = adSchema.safeParse(req.body);
@@ -71,10 +97,15 @@ router.post('/ads', requireMerchant, async (req, res) => {
   const d = parsed.data;
   if (d.maxAmount < d.minAmount) return res.status(400).json({ error: 'maxAmount must be >= minAmount' });
 
+  const bankMethodIds = d.bankMethodIds || [];
+  if (!(await verifyOwnedBankMethods(req.user!.id, bankMethodIds))) {
+    return res.status(400).json({ error: 'One or more selected bank accounts are invalid' });
+  }
+
   const result = await pool.query(
     `INSERT INTO p2p_ads
-       (merchant_id, side, asset_symbol, fiat_symbol, price, min_amount, max_amount, available_amount, payment_window_minutes, payment_methods, terms)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+       (merchant_id, side, asset_symbol, fiat_symbol, price, min_amount, max_amount, available_amount, payment_window_minutes, payment_methods, bank_method_ids, terms)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
     [
       req.user!.id,
       d.side,
@@ -85,7 +116,8 @@ router.post('/ads', requireMerchant, async (req, res) => {
       d.maxAmount,
       d.availableAmount,
       d.paymentWindowMinutes || 15,
-      d.paymentMethods,
+      d.paymentMethods || [],
+      bankMethodIds,
       d.terms || null,
     ]
   );
@@ -97,7 +129,8 @@ const adUpdateSchema = z.object({
   minAmount: z.number().positive().optional(),
   maxAmount: z.number().positive().optional(),
   availableAmount: z.number().nonnegative().optional(),
-  paymentMethods: z.array(z.string().min(1).max(50)).min(1).optional(),
+  paymentMethods: z.array(z.string().min(1).max(50)).max(20).optional(),
+  bankMethodIds: z.array(z.string().uuid()).max(7).optional(),
   terms: z.string().max(1000).optional(),
   status: z.enum(['ACTIVE', 'PAUSED']).optional(),
 });
@@ -107,12 +140,17 @@ router.patch('/ads/:id', requireMerchant, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const fields = parsed.data;
 
+  if (fields.bankMethodIds && !(await verifyOwnedBankMethods(req.user!.id, fields.bankMethodIds))) {
+    return res.status(400).json({ error: 'One or more selected bank accounts are invalid' });
+  }
+
   const columns: Record<string, string> = {
     price: 'price',
     minAmount: 'min_amount',
     maxAmount: 'max_amount',
     availableAmount: 'available_amount',
     paymentMethods: 'payment_methods',
+    bankMethodIds: 'bank_method_ids',
     terms: 'terms',
     status: 'status',
   };
@@ -162,12 +200,13 @@ const createOrderSchema = z.object({
   adId: z.string().uuid(),
   amount: z.number().positive(),
   paymentMethod: z.string().max(50).optional(),
+  bankMethodId: z.string().uuid().optional(),
 });
 
 router.post('/orders', async (req, res) => {
   const parsed = createOrderSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { adId, amount, paymentMethod } = parsed.data;
+  const { adId, amount, paymentMethod, bankMethodId } = parsed.data;
 
   try {
     const order = await withTransaction(async (client) => {
@@ -180,6 +219,22 @@ router.post('/orders', async (req, res) => {
       }
       if (amount > parseFloat(ad.available_amount)) throw new P2PError('Ad does not have enough available amount left');
 
+      // If the seller listed specific bank accounts, the buyer must pick one so its
+      // details can be shown to them for payment — snapshotted so it survives edits.
+      let bankSnapshot: { bank_name: string; account_holder: string; account_number: string; note: string | null } | null = null;
+      const adBankIds: string[] = ad.bank_method_ids || [];
+      if (adBankIds.length > 0) {
+        if (!bankMethodId || !adBankIds.includes(bankMethodId)) {
+          throw new P2PError('Select one of the seller\'s bank accounts to pay into');
+        }
+        const bankRes = await client.query(
+          `SELECT bank_name, account_holder, account_number, note FROM user_payment_methods WHERE id = $1`,
+          [bankMethodId]
+        );
+        bankSnapshot = bankRes.rows[0];
+        if (!bankSnapshot) throw new P2PError('Selected bank account no longer exists');
+      }
+
       const { sellerId } = resolveParties(ad.side, ad.merchant_id, req.user!.id);
       await lockFunds(client, sellerId, ad.asset_symbol, amount);
 
@@ -188,8 +243,9 @@ router.post('/orders', async (req, res) => {
       const totalFiat = amount * parseFloat(ad.price);
       const orderRes = await client.query(
         `INSERT INTO p2p_orders
-           (ad_id, merchant_id, taker_id, ad_side, asset_symbol, fiat_symbol, amount, price, total_fiat, payment_method, payment_deadline)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now() + ($11 || ' minutes')::interval)
+           (ad_id, merchant_id, taker_id, ad_side, asset_symbol, fiat_symbol, amount, price, total_fiat, payment_method, payment_deadline,
+            bank_name, bank_account_holder, bank_account_number, bank_note)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now() + ($11 || ' minutes')::interval, $12, $13, $14, $15)
          RETURNING *`,
         [
           adId,
@@ -203,6 +259,10 @@ router.post('/orders', async (req, res) => {
           totalFiat,
           paymentMethod || ad.payment_methods?.[0] || null,
           ad.payment_window_minutes,
+          bankSnapshot?.bank_name || null,
+          bankSnapshot?.account_holder || null,
+          bankSnapshot?.account_number || null,
+          bankSnapshot?.note || null,
         ]
       );
       return orderRes.rows[0];
@@ -324,7 +384,28 @@ router.post('/orders/:id/dispute', async (req, res) => {
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (!['PENDING_PAYMENT', 'PAID'].includes(order.status)) return res.status(400).json({ error: 'Order cannot be disputed in its current state' });
 
-  const result = await pool.query(`UPDATE p2p_orders SET status = 'DISPUTED' WHERE id = $1 RETURNING *`, [order.id]);
+  const result = await pool.query(
+    `UPDATE p2p_orders SET status = 'DISPUTED', disputed_by = $2, pre_dispute_status = $3 WHERE id = $1 RETURNING *`,
+    [order.id, req.user!.id, order.status]
+  );
+  res.json({ order: result.rows[0] });
+});
+
+// Lets the same user who opened the dispute back out of it (e.g. they settled it
+// directly with the other party) without waiting on admin — reverts to the status the
+// order was in right before the dispute was raised.
+router.post('/orders/:id/dispute/cancel', async (req, res) => {
+  const order = await loadOwnedOrder(req.params.id, req.user!.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.status !== 'DISPUTED') return res.status(400).json({ error: 'Order is not disputed' });
+  if (order.disputed_by !== req.user!.id) {
+    return res.status(403).json({ error: 'Only the user who opened the dispute can cancel it' });
+  }
+
+  const result = await pool.query(
+    `UPDATE p2p_orders SET status = $2, disputed_by = NULL, pre_dispute_status = NULL WHERE id = $1 RETURNING *`,
+    [order.id, order.pre_dispute_status || 'PENDING_PAYMENT']
+  );
   res.json({ order: result.rows[0] });
 });
 

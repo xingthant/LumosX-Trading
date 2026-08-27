@@ -20,7 +20,10 @@ interface PaymentMethod {
   bank_name: string | null;
   account_holder: string | null;
   account_number: string | null;
+  note: string | null;
 }
+
+const MAX_BANK_ACCOUNTS = 7;
 
 function Notice({ message }: { message: { kind: 'ok' | 'error'; text: string } | null }) {
   if (!message) return null;
@@ -54,6 +57,7 @@ export default function SettingsPage() {
   const [accountNumber, setAccountNumber] = useState('');
   const [iban, setIban] = useState('');
   const [swiftCode, setSwiftCode] = useState('');
+  const [note, setNote] = useState('');
   const [methodMessage, setMethodMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [methodBusy, setMethodBusy] = useState(false);
 
@@ -61,6 +65,9 @@ export default function SettingsPage() {
     api.get<{ user: Me }>('/api/auth/me').then((res) => setMe(res.user)).catch(() => {});
     api.get<{ methods: PaymentMethod[] }>('/api/wallet/payment-methods').then((res) => setMethods(res.methods)).catch(() => {});
   }
+
+  const bankAccountCount = methods.filter((m) => m.type === 'BANK_ACCOUNT').length;
+  const bankAccountLimitReached = methodType === 'BANK_ACCOUNT' && bankAccountCount >= MAX_BANK_ACCOUNTS;
 
   useEffect(load, []);
 
@@ -107,7 +114,7 @@ export default function SettingsPage() {
         label,
         ...(methodType === 'CRYPTO_WALLET'
           ? { assetSymbol, walletAddress, network }
-          : { bankName, accountHolder, accountNumber, iban: iban || undefined, swiftCode: swiftCode || undefined }),
+          : { bankName, accountHolder, accountNumber, iban: iban || undefined, swiftCode: swiftCode || undefined, note: note || undefined }),
       });
       setMethodMessage({ kind: 'ok', text: 'Payout method saved.' });
       setLabel('');
@@ -117,6 +124,7 @@ export default function SettingsPage() {
       setAccountNumber('');
       setIban('');
       setSwiftCode('');
+      setNote('');
       load();
     } catch (err) {
       setMethodMessage({ kind: 'error', text: err instanceof ApiError ? err.message : 'Failed to save payout method' });
@@ -200,7 +208,12 @@ export default function SettingsPage() {
         </section>
 
         <section className="rounded-2xl border border-border bg-panel p-4">
-          <div className="mb-3 text-sm font-semibold">My Payout Methods</div>
+          <div className="mb-3 flex items-center justify-between text-sm font-semibold">
+            <span>My Payout Methods</span>
+            <span className="text-[11px] font-normal text-muted">
+              {bankAccountCount}/{MAX_BANK_ACCOUNTS} bank accounts
+            </span>
+          </div>
 
           <div className="mb-3 flex flex-col gap-2">
             {methods.length === 0 && <p className="text-xs text-muted">No payout methods bound yet. Add one below to enable withdrawals.</p>}
@@ -217,6 +230,7 @@ export default function SettingsPage() {
                     ) : (
                       <div className="text-muted">
                         {m.bank_name} · {m.account_holder} · {m.account_number}
+                        {m.note && <div className="mt-0.5 italic text-muted/80">Note: {m.note}</div>}
                       </div>
                     )}
                   </div>
@@ -314,10 +328,26 @@ export default function SettingsPage() {
                   placeholder="SWIFT / BIC (optional)"
                   className="rounded-xl border border-border bg-surface px-4 py-3 text-sm outline-none focus:border-accent"
                 />
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Note (optional) — e.g. only accept transfers from same-name accounts"
+                  rows={2}
+                  className="rounded-xl border border-border bg-surface px-4 py-3 text-sm outline-none focus:border-accent"
+                />
               </>
             )}
+            {bankAccountLimitReached && (
+              <p className="text-xs text-amber-400">
+                You've reached the maximum of {MAX_BANK_ACCOUNTS} bank accounts — remove one to add another.
+              </p>
+            )}
             <Notice message={methodMessage} />
-            <button type="submit" disabled={methodBusy} className="mt-1 rounded-xl bg-accent py-2.5 text-sm font-semibold text-black disabled:opacity-60">
+            <button
+              type="submit"
+              disabled={methodBusy || bankAccountLimitReached}
+              className="mt-1 rounded-xl bg-accent py-2.5 text-sm font-semibold text-black disabled:opacity-60"
+            >
               {methodBusy ? 'Saving…' : 'Add payout method'}
             </button>
           </form>
