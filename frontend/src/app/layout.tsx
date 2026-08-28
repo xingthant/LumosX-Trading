@@ -12,6 +12,7 @@ const PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000
 
 const DEFAULT_SITE_NAME = 'PaperTrade';
 const DEFAULT_TAGLINE = 'Simulated crypto trading. No real funds involved.';
+const FAVICON_URL = 'https://plain-apac-prod-public.komododecks.com/202608/28/OoCUFrmiQtH0opPE6osX/image.png';
 
 export async function generateMetadata(): Promise<Metadata> {
   let siteName = DEFAULT_SITE_NAME;
@@ -37,6 +38,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: siteName,
     description: tagline,
+    icons: {
+      icon: FAVICON_URL,
+      shortcut: FAVICON_URL,
+      apple: FAVICON_URL,
+    },
     openGraph: {
       title: siteName,
       description: tagline,
