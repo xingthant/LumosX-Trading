@@ -29,6 +29,11 @@ interface BankAccount {
   note: string | null;
 }
 
+interface Balance {
+  asset_symbol: string;
+  available_balance: string;
+}
+
 interface Order {
   id: string;
   merchant_email: string;
@@ -61,6 +66,7 @@ export default function MerchantCenterPage() {
   const [ads, setAds] = useState<Ad[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [balances, setBalances] = useState<Balance[]>([]);
   const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
@@ -80,7 +86,10 @@ export default function MerchantCenterPage() {
       .get<{ methods: (BankAccount & { type: string })[] }>('/api/wallet/payment-methods')
       .then((res) => setBankAccounts(res.methods.filter((m) => m.type === 'BANK_ACCOUNT')))
       .catch(() => {});
+    api.get<{ balances: Balance[] }>('/api/wallet/balances').then((res) => setBalances(res.balances)).catch(() => {});
   }
+
+  const sellAssetBalance = balances.find((b) => b.asset_symbol === form.assetSymbol.toUpperCase());
 
   useEffect(load, []);
 
@@ -239,7 +248,16 @@ export default function MerchantCenterPage() {
           <input required type="number" step="any" value={form.minAmount} onChange={(e) => setForm({ ...form, minAmount: e.target.value })} placeholder="Min amount" className="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm" />
           <input required type="number" step="any" value={form.maxAmount} onChange={(e) => setForm({ ...form, maxAmount: e.target.value })} placeholder="Max amount" className="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm" />
         </div>
-        <input required type="number" step="any" value={form.availableAmount} onChange={(e) => setForm({ ...form, availableAmount: e.target.value })} placeholder="Total available amount" className="mb-2 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm" />
+        <input required type="number" step="any" value={form.availableAmount} onChange={(e) => setForm({ ...form, availableAmount: e.target.value })} placeholder="Total available amount" className="mb-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm" />
+        {form.side === 'SELL' && (
+          <p className="mb-2 text-[11px] text-muted">
+            You have{' '}
+            <span className={parseFloat(sellAssetBalance?.available_balance || '0') > 0 ? 'text-accent' : 'text-danger'}>
+              {parseFloat(sellAssetBalance?.available_balance || '0').toLocaleString()} {form.assetSymbol}
+            </span>{' '}
+            available to sell.
+          </p>
+        )}
         <div className="mb-2">
           <label className="mb-1 block text-[11px] text-muted">Payment window — how long the buyer has to pay</label>
           <div className="flex rounded-xl bg-surface p-1">

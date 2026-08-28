@@ -25,6 +25,11 @@ function resolveParties(adSide: 'BUY' | 'SELL', merchantId: string, takerId: str
   return adSide === 'SELL' ? { sellerId: merchantId, buyerId: takerId } : { sellerId: takerId, buyerId: merchantId };
 }
 
+async function getAvailableBalance(userId: string, asset: string): Promise<number> {
+  const res = await pool.query(`SELECT available_balance FROM user_balances WHERE user_id = $1 AND asset_symbol = $2`, [userId, asset]);
+  return res.rows[0] ? parseFloat(res.rows[0].available_balance) : 0;
+}
+
 // --- Ads --------------------------------------------------------------------
 
 // Returns the ad's linked bank accounts as {id, bankName} pairs (not full account
@@ -102,6 +107,16 @@ router.post('/ads', requireMerchant, async (req, res) => {
     return res.status(400).json({ error: 'One or more selected bank accounts are invalid' });
   }
 
+  if (d.side === 'SELL') {
+    const asset = d.assetSymbol.toUpperCase();
+    const balance = await getAvailableBalance(req.user!.id, asset);
+    if (d.availableAmount > balance) {
+      return res.status(400).json({
+        error: `You only have ${balance.toLocaleString()} ${asset} available — you can't list ${d.availableAmount.toLocaleString()} for sale`,
+      });
+    }
+  }
+
   const result = await pool.query(
     `INSERT INTO p2p_ads
        (merchant_id, side, asset_symbol, fiat_symbol, price, min_amount, max_amount, available_amount, payment_window_minutes, payment_methods, bank_method_ids, terms)
@@ -142,6 +157,26 @@ router.patch('/ads/:id', requireMerchant, async (req, res) => {
 
   if (fields.bankMethodIds && !(await verifyOwnedBankMethods(req.user!.id, fields.bankMethodIds))) {
     return res.status(400).json({ error: 'One or more selected bank accounts are invalid' });
+  }
+
+  // Re-check the seller can actually cover it whenever a SELL ad's listed amount is
+  // raised or it's being reactivated — same guard as at creation, so an ad can't be
+  // topped up or resumed past what the merchant currently holds.
+  if (fields.availableAmount !== undefined || fields.status === 'ACTIVE') {
+    const adRes = await pool.query(`SELECT side, asset_symbol, available_amount FROM p2p_ads WHERE id = $1 AND merchant_id = $2`, [
+      req.params.id,
+      req.user!.id,
+    ]);
+    const existing = adRes.rows[0];
+    if (existing?.side === 'SELL') {
+      const targetAmount = fields.availableAmount ?? parseFloat(existing.available_amount);
+      const balance = await getAvailableBalance(req.user!.id, existing.asset_symbol);
+      if (targetAmount > balance) {
+        return res.status(400).json({
+          error: `You only have ${balance.toLocaleString()} ${existing.asset_symbol} available — you can't list ${targetAmount.toLocaleString()} for sale`,
+        });
+      }
+    }
   }
 
   const columns: Record<string, string> = {
@@ -236,7 +271,18 @@ router.post('/orders', async (req, res) => {
       }
 
       const { sellerId } = resolveParties(ad.side, ad.merchant_id, req.user!.id);
-      await lockFunds(client, sellerId, ad.asset_symbol, amount);
+      try {
+        await lockFunds(client, sellerId, ad.asset_symbol, amount);
+      } catch (err) {
+        if (err instanceof InsufficientBalanceError) {
+          throw new P2PError(
+            sellerId === req.user!.id
+              ? `You don't have enough ${ad.asset_symbol} available to complete this trade`
+              : 'The seller no longer has enough balance to complete this trade — try a smaller amount or a different ad'
+          );
+        }
+        throw err;
+      }
 
       await client.query(`UPDATE p2p_ads SET available_amount = available_amount - $2, updated_at = now() WHERE id = $1`, [adId, amount]);
 
