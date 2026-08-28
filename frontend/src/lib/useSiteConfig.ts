@@ -16,6 +16,7 @@ export interface TelegramPromo {
   buttonText?: string;
   isActive: boolean;
   showPopup?: boolean;
+  supportTelegramUrl?: string | null;
 }
 
 interface SiteConfig {

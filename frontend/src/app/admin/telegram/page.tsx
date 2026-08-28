@@ -13,6 +13,7 @@ interface TelegramConfig {
   button_text: string;
   is_active: boolean;
   show_popup: boolean;
+  support_telegram_url: string | null;
 }
 
 export default function AdminTelegramPage() {
@@ -23,13 +24,14 @@ export default function AdminTelegramPage() {
     button_text: 'Join Channel',
     is_active: false,
     show_popup: true,
+    support_telegram_url: '',
   });
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   function load() {
     api.get<{ config: TelegramConfig | null }>('/api/admin/telegram-promo').then((res) => {
-      if (res.config) setForm(res.config);
+      if (res.config) setForm({ ...res.config, support_telegram_url: res.config.support_telegram_url || '' });
     });
   }
 
@@ -47,6 +49,7 @@ export default function AdminTelegramPage() {
         buttonText: form.button_text,
         isActive: form.is_active,
         showPopup: form.show_popup,
+        supportTelegramUrl: form.support_telegram_url || undefined,
       });
       setMessage({ kind: 'ok', text: 'Telegram promo saved.' });
       load();
@@ -103,6 +106,21 @@ export default function AdminTelegramPage() {
           <div>
             <label className="mb-1 block text-xs text-muted">Button text</label>
             <input required value={form.button_text} onChange={(e) => setForm({ ...form, button_text: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm" />
+          </div>
+
+          <div className="mt-2 border-t border-border pt-3">
+            <label className="mb-1 block text-xs text-muted">Customer support Telegram link</label>
+            <input
+              type="url"
+              value={form.support_telegram_url || ''}
+              onChange={(e) => setForm({ ...form, support_telegram_url: e.target.value })}
+              placeholder="https://t.me/your_support_username"
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-[11px] text-muted">
+              Where "Forgot password?" on the login page sends users — this app has no real password-reset flow, so it hands off to a
+              human here instead. Leave blank to hide the link on login.
+            </p>
           </div>
 
           {message && <p className={`text-xs ${message.kind === 'ok' ? 'text-accent' : 'text-danger'}`}>{message.text}</p>}

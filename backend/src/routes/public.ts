@@ -8,7 +8,7 @@ router.get('/site-config', async (_req, res) => {
   const [brandingRes, telegramRes] = await Promise.all([
     pool.query(`SELECT site_name, tagline, logo_data, logo_mime_type FROM site_branding_config ORDER BY updated_at DESC LIMIT 1`),
     pool.query(
-      `SELECT telegram_url, popup_title, popup_message, button_text, is_active, show_popup
+      `SELECT telegram_url, popup_title, popup_message, button_text, is_active, show_popup, support_telegram_url
        FROM telegram_promo_config ORDER BY updated_at DESC LIMIT 1`
     ),
   ]);
@@ -30,8 +30,9 @@ router.get('/site-config', async (_req, res) => {
           buttonText: telegram.button_text,
           isActive: telegram.is_active,
           showPopup: telegram.show_popup,
+          supportTelegramUrl: telegram.support_telegram_url || null,
         }
-      : { isActive: false },
+      : { isActive: false, supportTelegramUrl: null },
   });
 });
 

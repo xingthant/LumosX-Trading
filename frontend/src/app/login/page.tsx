@@ -18,7 +18,7 @@ function LoginPageInner() {
   const searchParams = useSearchParams();
   const referralCode = searchParams.get('ref') || '';
   const { login, register } = useAuth();
-  const { branding } = useSiteConfig();
+  const { branding, telegram } = useSiteConfig();
   const [mode, setMode] = useState<'login' | 'register'>(referralCode ? 'register' : 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -93,6 +93,16 @@ function LoginPageInner() {
             onChange={(e) => setPassword(e.target.value)}
             className="rounded-xl border border-border bg-surface px-4 py-3 text-base outline-none focus:border-accent"
           />
+          {mode === 'login' && telegram.supportTelegramUrl && (
+            <a
+              href={telegram.supportTelegramUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="-mt-1 self-end text-xs text-muted hover:text-accent"
+            >
+              Forgot password?
+            </a>
+          )}
           {error && <p className="text-sm text-danger">{error}</p>}
           <button
             type="submit"
@@ -106,7 +116,7 @@ function LoginPageInner() {
 
       {mode === 'register' && (
         <p className="mt-4 text-center text-xs text-muted">
-          New accounts start with a simulated 100,000 USDT paper balance.
+          New accounts start with a simulated paper trading balance.
         </p>
       )}
     </div>

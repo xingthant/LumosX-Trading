@@ -940,6 +940,7 @@ const telegramSchema = z.object({
   buttonText: z.string().min(1).max(100),
   isActive: z.boolean(),
   showPopup: z.boolean(),
+  supportTelegramUrl: z.string().url().max(500).optional().or(z.literal('')),
 });
 
 router.put('/telegram-promo', async (req, res) => {
@@ -949,9 +950,9 @@ router.put('/telegram-promo', async (req, res) => {
 
   const result = await pool.query(
     `INSERT INTO telegram_promo_config
-       (telegram_url, popup_title, popup_message, button_text, is_active, show_popup, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [d.telegramUrl, d.popupTitle, d.popupMessage, d.buttonText, d.isActive, d.showPopup, req.user!.id]
+       (telegram_url, popup_title, popup_message, button_text, is_active, show_popup, support_telegram_url, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [d.telegramUrl, d.popupTitle, d.popupMessage, d.buttonText, d.isActive, d.showPopup, d.supportTelegramUrl || null, req.user!.id]
   );
   await logAudit(req.user!.id, 'TELEGRAM_PROMO_UPDATE', { metadata: { isActive: d.isActive } });
   res.status(201).json({ config: result.rows[0] });
