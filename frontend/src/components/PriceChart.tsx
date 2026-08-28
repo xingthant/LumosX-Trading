@@ -40,6 +40,11 @@ export default function PriceChart({ pair, latestTick }: { pair: string; latestT
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const currentCandleRef = useRef<Candle | null>(null);
+  // Tracks which pair+timeframe the series currently holds data for, so live ticks (which
+  // arrive independently of the reload fetch below) never get applied while a switch to a
+  // different pair/timeframe is still in flight — that mismatch is what caused
+  // lightweight-charts' "Cannot update oldest data" error when switching timeframes.
+  const loadedKeyRef = useRef<string | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>('1m');
   const [loading, setLoading] = useState(true);
 
@@ -94,6 +99,9 @@ export default function PriceChart({ pair, latestTick }: { pair: string; latestT
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Invalidate immediately so live ticks stop touching the series (which still holds the
+    // previous pair/timeframe's data) until this fetch actually lands.
+    loadedKeyRef.current = null;
     fetch(`${API_URL}/api/market/klines/${pair}?interval=${timeframe}&limit=300`)
       .then((r) => r.json())
       .then((data) => {
@@ -104,6 +112,7 @@ export default function PriceChart({ pair, latestTick }: { pair: string; latestT
           candles.map((c) => ({ time: c.time, value: c.volume, color: volumeColor(c.close >= c.open) }))
         );
         currentCandleRef.current = candles[candles.length - 1] || null;
+        loadedKeyRef.current = `${pair}:${timeframe}`;
         chartRef.current?.timeScale().scrollToRealTime();
       })
       .finally(() => {
@@ -117,6 +126,7 @@ export default function PriceChart({ pair, latestTick }: { pair: string; latestT
   // Aggregate live ticks into the currently-forming candle, Binance-style.
   useEffect(() => {
     if (!latestTick || !candleSeriesRef.current || !volumeSeriesRef.current) return;
+    if (loadedKeyRef.current !== `${pair}:${timeframe}`) return;
     const bucketSeconds = TIMEFRAME_SECONDS[timeframe];
     const bucketTime = (Math.floor(Date.now() / 1000 / bucketSeconds) * bucketSeconds) as UTCTimestamp;
     const { price, volume = 0 } = latestTick;
