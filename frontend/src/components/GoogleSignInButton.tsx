@@ -38,10 +38,13 @@ export default function GoogleSignInButton({ referralCode, onError }: { referral
           });
         },
       });
+      // Google's button only accepts a pixel width (max 400), not a percentage — measure
+      // the actual container so it still looks full-width within our layout.
+      const width = Math.min(400, buttonRef.current.offsetWidth || 300);
       window.google.accounts.id.renderButton(buttonRef.current, {
         theme: 'outline',
         size: 'large',
-        width: '100%',
+        width,
         text: 'continue_with',
       });
     };
