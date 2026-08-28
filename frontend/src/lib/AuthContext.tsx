@@ -15,6 +15,7 @@ interface AuthContextValue {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, referralCode?: string) => Promise<void>;
+  loginWithGoogle: (credential: string, referralCode?: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -50,6 +51,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push('/home');
   }
 
+  async function loginWithGoogle(credential: string, referralCode?: string) {
+    const res = await api.post<{ token: string; user: User }>('/api/auth/google', {
+      credential,
+      referralCode: referralCode || undefined,
+    });
+    setToken(res.token);
+    setStoredUser(res.user);
+    setUser(res.user);
+    router.push(res.user.role === 'ADMIN' ? '/admin' : '/home');
+  }
+
   function logout() {
     clearToken();
     localStorage.removeItem('user');
@@ -57,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push('/login');
   }
 
-  return <AuthContext.Provider value={{ user, loading, login, register, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, loading, login, register, loginWithGoogle, logout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

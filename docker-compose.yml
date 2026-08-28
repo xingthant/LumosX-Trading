@@ -58,6 +58,7 @@ services:
       SUPPORTED_PAIRS: "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT,TRXUSDT,DOTUSDT,LTCUSDT,LINKUSDT,AVAXUSDT,ATOMUSDT,UNIUSDT,ETCUSDT,XLMUSDT,BCHUSDT,NEARUSDT,FILUSDT,ICPUSDT"
       STARTING_FIAT_BALANCE: "0"
       FIAT_SYMBOL: USDT
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
       - "4000:4000"
     depends_on:
@@ -94,6 +95,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
         NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-http://localhost:4000}
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     container_name: crypto_frontend
     restart: always
     environment:

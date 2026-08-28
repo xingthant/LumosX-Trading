@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/AuthContext';
 import { ApiError } from '@/lib/api';
 import { useSiteConfig } from '@/lib/useSiteConfig';
+import GoogleSignInButton from '@/components/GoogleSignInButton';
 
 export default function LoginPage() {
   return (
@@ -112,6 +113,14 @@ function LoginPageInner() {
             {busy ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Create account'}
           </button>
         </form>
+
+        <div className="my-4 flex items-center gap-3">
+          <div className="h-px flex-1 bg-border" />
+          <span className="text-[11px] text-muted">or</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+
+        <GoogleSignInButton referralCode={mode === 'register' ? referralCode : undefined} onError={setError} />
       </div>
 
       {mode === 'register' && (

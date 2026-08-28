@@ -16,4 +16,5 @@ export const config = {
   binanceWsUrl: process.env.BINANCE_WS_URL || 'wss://stream.binance.com:9443/stream',
   startingFiatBalance: parseFloat(process.env.STARTING_FIAT_BALANCE || '0'),
   fiatSymbol: process.env.FIAT_SYMBOL || 'USDT',
+  googleClientId: process.env.GOOGLE_CLIENT_ID || '',
 };
